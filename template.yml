@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Capture telemetry data in AWS Lambda functions
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 10
+    Runtime: python3.9
+
+Resources:
+  PowertoolsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/powertools/
+      Handler: index.lambda_handler
+      Layers:
+        - !Sub "arn:aws:lambda:${AWS::Region}:017000801446:layer:AWSLambdaPowertoolsPythonV2:13"
+      Tracing: Active
+      Environment:
+        Variables:
+          POWERTOOLS_SERVICE_NAME: powertools-function
+          LOG_LEVEL: INFO
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - xray:PutTraceSegments
+                - xray:PutTelemetryRecords
+                - xray:GetSamplingRules
+                - xray:GetSamplingTargets
+                - xray:GetSamplingStatisticSummaries
+              Resource: '*'
+
+  PowertoolsFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${PowertoolsFunction}
+      RetentionInDays: 14
+  
+  OtelFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/otel/
+      Handler: index.lambda_handler
+      Layers:
+        - !Sub "arn:aws:lambda:${AWS::Region}:901920570463:layer:aws-otel-python-amd64-ver-1-13-0:1"
+      Tracing: Active
+      Environment:
+        Variables:
+          AWS_LAMBDA_EXEC_WRAPPER: /opt/otel-instrument
+          OPENTELEMETRY_COLLECTOR_CONFIG_FILE: /var/task/collector.yaml
+          OPENTELEMETRY_COLLECTOR_ARGS: --set=service.telemetry.logs.level=debug
+          URL: 'https://www.capitalone.com'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - xray:PutTraceSegments
+                - xray:PutTelemetryRecords
+                - xray:GetSamplingRules
+                - xray:GetSamplingTargets
+                - xray:GetSamplingStatisticSummaries
+              Resource: '*'
+
+  OtelFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${OtelFunction}
+      RetentionInDays: 14
+
+  InsightsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/lambda_insights/
+      Handler: index.lambda_handler
+      Layers:
+        - !Sub "arn:aws:lambda:${AWS::Region}:580247275435:layer:LambdaInsightsExtension:21"
+      Environment:
+        Variables:
+          POWERTOOLS_SERVICE_NAME: insights-function
+          LOG_LEVEL: INFO
+          LAMBDA_INSIGHTS_LOG_LEVEL: info
+      Policies:
+        - CloudWatchLambdaInsightsExecutionRolePolicy
+
+  InsightsFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${InsightsFunction}
+      RetentionInDays: 14
+
+Outputs:
+  PowertoolsFunctionArn:
+    Description: The AWS Lambda function ARN for the Powertools function
+    Value: !GetAtt PowertoolsFunction.Arn
+  
+  OtelFunctionArn:
+    Description: The AWS Lambda function ARN for the Otel function
+    Value: !GetAtt OtelFunction.Arn
+
+  InsightsFunctionArn:
+    Description: The AWS Lambda function ARN for the Otel function
+    Value: !GetAtt OtelFunction.Arn
+  
